@@ -50,15 +50,30 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// API Routes
+// API Routes (Mounted under both /api/* and /* for full compatibility)
 app.use('/api/auth', authRoutes);
+app.use('/auth', authRoutes);
+
 app.use('/api/menu', menuRoutes);
+app.use('/menu', menuRoutes);
+
 app.use('/api/coupons', couponRoutes);
+app.use('/coupons', couponRoutes);
+
 app.use('/api/canteen', canteenRoutes);
+app.use('/canteen', canteenRoutes);
+
 app.use('/api/orders', orderRoutes);
+app.use('/orders', orderRoutes);
+
 app.use('/api/payments', paymentRoutes);
+app.use('/payments', paymentRoutes);
+
 app.use('/api/admin', adminRoutes);
+app.use('/admin', adminRoutes);
+
 app.use('/api/notifications', notificationRoutes);
+app.use('/notifications', notificationRoutes);
 
 // Error handling
 app.use(notFound);
