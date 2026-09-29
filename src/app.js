@@ -10,6 +10,7 @@ import orderRoutes from './routes/orderRoutes.js';
 import paymentRoutes from './routes/paymentRoutes.js';
 import adminRoutes from './routes/adminRoutes.js';
 import notificationRoutes from './routes/notificationRoutes.js';
+import uploadRoutes from './routes/uploadRoutes.js';
 import { notFound, errorHandler } from './middlewares/errorHandler.js';
 
 dotenv.config();
@@ -74,6 +75,9 @@ app.use('/admin', adminRoutes);
 
 app.use('/api/notifications', notificationRoutes);
 app.use('/notifications', notificationRoutes);
+
+app.use('/api/upload', uploadRoutes);
+app.use('/upload', uploadRoutes);
 
 // Error handling
 app.use(notFound);
