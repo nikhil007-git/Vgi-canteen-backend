@@ -1,0 +1,315 @@
+// Prisma Schema for VGI Canteen
+// Configured for PostgreSQL / Neon DB
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum Role {
+  STUDENT
+  STAFF
+  ADMIN
+}
+
+enum StockMode {
+  MANUAL
+  QUANTITY
+}
+
+enum SelectionType {
+  SINGLE
+  MULTIPLE
+}
+
+enum CouponType {
+  PERCENTAGE
+  FIXED
+}
+
+enum OrderStatus {
+  PAYMENT_PENDING
+  PAID
+  ACCEPTED
+  PREPARING
+  READY
+  COMPLETED
+  CANCELLED
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCESS
+  FAILED
+}
+
+enum RefundStatus {
+  INITIATED
+  PROCESSED
+  FAILED
+}
+
+enum CanteenStatus {
+  OPEN
+  BUSY
+  CLOSED
+}
+
+model User {
+  id           String         @id @default(uuid())
+  name         String
+  email        String         @unique
+  password     String?
+  clerkId      String?        @unique
+  role         Role           @default(STUDENT)
+  phone        String?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  orders       Order[]
+  ratings      Rating[]
+  notifications Notification[]
+  auditLogs    AuditLog[]
+
+  @@map("users")
+}
+
+model Category {
+  id          String     @id @default(uuid())
+  name        String
+  description String?
+  sortOrder   Int        @default(0)
+  active      Boolean    @default(true)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  menuItems   MenuItem[]
+
+  @@map("categories")
+}
+
+model MenuItem {
+  id          String        @id @default(uuid())
+  categoryId  String
+  name        String
+  description String?
+  price       Float
+  imageUrl    String?
+  active      Boolean       @default(true)
+  soldOut     Boolean       @default(false)
+  stockMode   StockMode     @default(MANUAL)
+  stockQty    Int           @default(100)
+  prepTime    Int           @default(15) // default ETA in minutes
+  isPopular   Boolean       @default(false)
+  isFeatured  Boolean       @default(false)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  category    Category      @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  optionGroups OptionGroup[]
+  orderItems  OrderItem[]
+
+  @@map("menu_items")
+}
+
+model OptionGroup {
+  id            String        @id @default(uuid())
+  menuItemId    String
+  name          String        // e.g. "Size", "Portion", "Spice Level"
+  selectionType SelectionType @default(SINGLE)
+  required      Boolean       @default(false)
+  createdAt     DateTime      @default(now())
+
+  menuItem      MenuItem      @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  options       Option[]
+
+  @@map("option_groups")
+}
+
+model Option {
+  id         String      @id @default(uuid())
+  groupId    String
+  name       String      // e.g. "Regular", "Large", "Extra Cheese"
+  priceDelta Float       @default(0.0)
+  active     Boolean     @default(true)
+
+  group      OptionGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@map("options")
+}
+
+model Coupon {
+  id           String     @id @default(uuid())
+  code         String     @unique
+  description  String?
+  type         CouponType @default(PERCENTAGE)
+  value        Float      // e.g. 20 for 20% or 50 for 50 flat
+  minOrder     Float      @default(0)
+  maxDiscount  Float?     // max discount limit
+  startAt      DateTime   @default(now())
+  endAt        DateTime?
+  usageLimit   Int?       // total allowed usages
+  perUserLimit Int        @default(1)
+  usedCount    Int        @default(0)
+  active       Boolean    @default(true)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@map("coupons")
+}
+
+model Order {
+  id                  String       @id @default(uuid())
+  orderNumber         Int          @default(autoincrement())
+  displayNumber       String?      // e.g. "VGI-1001"
+  userId              String
+  status              OrderStatus  @default(PAYMENT_PENDING)
+  subtotal            Float
+  discount            Float        @default(0.0)
+  total               Float
+  phone               String
+  pickupCode          String       // short unguessable token e.g. "VGI-983"
+  appliedCoupon       String?
+  specialInstructions String?
+  prepTimeMinutes     Int?
+  prepStartTime       DateTime?
+  estimatedReadyTime  DateTime?
+  readyAt             DateTime?
+  completedAt         DateTime?
+  cancelledAt         DateTime?
+  cancelReason        String?
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+
+  user                User         @relation(fields: [userId], references: [id])
+  items               OrderItem[]
+  payment             Payment?
+  refund              Refund?
+  rating              Rating?
+  notifications       Notification[]
+
+  @@map("orders")
+}
+
+model OrderItem {
+  id                 String            @id @default(uuid())
+  orderId            String
+  menuItemId         String
+  itemName           String
+  quantity           Int
+  unitPrice          Float
+  subtotal           Float
+  specialInstruction String?
+
+  order              Order             @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  menuItem           MenuItem          @relation(fields: [menuItemId], references: [id])
+  options            OrderItemOption[]
+
+  @@map("order_items")
+}
+
+model OrderItemOption {
+  id          String    @id @default(uuid())
+  orderItemId String
+  optionName  String
+  priceDelta  Float     @default(0.0)
+
+  orderItem   OrderItem @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+
+  @@map("order_item_options")
+}
+
+model Payment {
+  id                String        @id @default(uuid())
+  orderId           String        @unique
+  razorpayOrderId   String?
+  razorpayPaymentId String?
+  razorpaySignature String?
+  status            PaymentStatus @default(PENDING)
+  amount            Float
+  currency          String        @default("INR")
+  createdAt         DateTime      @default(now())
+
+  order             Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@map("payments")
+}
+
+model Refund {
+  id               String       @id @default(uuid())
+  orderId          String       @unique
+  paymentId        String?
+  razorpayRefundId String?
+  status           RefundStatus @default(INITIATED)
+  amount           Float
+  reason           String?
+  createdAt        DateTime     @default(now())
+
+  order            Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@map("refunds")
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  orderId   String?
+  type      String   // e.g. "ORDER_STATUS", "READY", "PROMO"
+  title     String
+  body      String
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  order     Order?   @relation(fields: [orderId], references: [id], onDelete: SetNull)
+
+  @@map("notifications")
+}
+
+model Rating {
+  id        String   @id @default(uuid())
+  orderId   String   @unique
+  userId    String
+  stars     Int      // 1 to 5
+  review    String?
+  createdAt DateTime @default(now())
+
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("ratings")
+}
+
+model CanteenSettings {
+  id              String        @id @default("default")
+  status          CanteenStatus @default(OPEN)
+  maxActiveOrders Int           @default(30)
+  openTime        String        @default("08:00 AM")
+  closeTime       String        @default("08:00 PM")
+  contactPhone    String        @default("+91 98765 43210")
+  contactWhatsapp String        @default("+91 98765 43210")
+  announcement    String?       @default("Welcome to VGI Canteen! Pre-order your meals to beat the rush.")
+  updatedAt       DateTime      @updatedAt
+
+  @@map("canteen_settings")
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  actorId    String?
+  action     String   // e.g. "UPDATE_STATUS", "CANCEL_ORDER", "UPDATE_MENU"
+  entityType String   // e.g. "ORDER", "MENU_ITEM", "CANTEEN"
+  entityId   String?
+  metadata   String?  // JSON string
+  createdAt  DateTime @default(now())
+
+  actor      User?    @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@map("audit_logs")
+}
+
