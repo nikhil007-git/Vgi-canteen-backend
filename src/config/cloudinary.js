@@ -2,27 +2,19 @@ import { v2 as cloudinary } from "cloudinary";
 import dotenv from "dotenv";
 dotenv.config();
 
-if (process.env.CLOUDINARY_URL) {
-  cloudinary.config({
-    cloudinary_url: process.env.CLOUDINARY_URL
-  });
-} else {
-  cloudinary.config({
-    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-    api_key: process.env.CLOUDINARY_API_KEY,
-    api_secret: process.env.CLOUDINARY_API_SECRET,
-    secure: true
-  });
-}
+const cloudName = process.env.CLOUDINARY_CLOUD_NAME || (process.env.CLOUDINARY_URL ? process.env.CLOUDINARY_URL.split('@')[1] : null);
+const apiKey = process.env.CLOUDINARY_API_KEY || (process.env.CLOUDINARY_URL ? process.env.CLOUDINARY_URL.split('://')[1]?.split(':')[0] : null);
+const apiSecret = process.env.CLOUDINARY_API_SECRET || (process.env.CLOUDINARY_URL ? process.env.CLOUDINARY_URL.split('://')[1]?.split(':')[1]?.split('@')[0] : null);
+
+cloudinary.config({
+  cloud_name: cloudName,
+  api_key: apiKey,
+  api_secret: apiSecret,
+  secure: true
+});
 
 export const isCloudinaryConfigured = () => {
-  if (process.env.CLOUDINARY_URL) return true;
-  return Boolean(
-    process.env.CLOUDINARY_CLOUD_NAME &&
-    process.env.CLOUDINARY_API_KEY &&
-    process.env.CLOUDINARY_API_SECRET &&
-    process.env.CLOUDINARY_CLOUD_NAME !== "your_cloud_name"
-  );
+  return Boolean(cloudName && apiKey && apiSecret && cloudName !== "your_cloud_name");
 };
 
 export default cloudinary;
