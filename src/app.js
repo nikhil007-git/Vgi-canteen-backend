@@ -12,20 +12,12 @@ import adminRoutes from './routes/adminRoutes.js';
 import notificationRoutes from './routes/notificationRoutes.js';
 import uploadRoutes from './routes/uploadRoutes.js';
 import { notFound, errorHandler } from './middlewares/errorHandler.js';
-import { securityHeaders } from './middlewares/securityHeaders.js';
-import { globalLimiter } from './middlewares/rateLimiter.js';
 
 dotenv.config();
 
 const app = express();
 
-// Trust reverse proxy (Render, Vercel, AWS ALB, Nginx) so req.ip is accurate
-app.set('trust proxy', 1);
-
-// Attach defensive security headers
-app.use(securityHeaders);
-
-// Allowed origins for CORS (Local development + Official Vercel deployment)
+// Allowed origins for CORS (Local development + Vercel deployment)
 const allowedOrigins = [
   process.env.FRONTEND_URL,
   'http://localhost:5173',
@@ -33,40 +25,22 @@ const allowedOrigins = [
   'http://127.0.0.1:5173'
 ].filter(Boolean);
 
-const vercelDeployRegex = /^https:\/\/(www\.)?vgi-canteen[a-z0-9-]*\.vercel\.app$/;
-
 app.use(cors({
   origin: (origin, callback) => {
-    if (!origin) {
-      return callback(null, true);
+    // Allow requests with no origin (mobile apps, curl, serverless) or matching domains
+    if (!origin || allowedOrigins.includes(origin) || origin.endsWith('.vercel.app')) {
+      callback(null, true);
+    } else {
+      callback(null, true); // Permissive in dev/preview
     }
-    if (allowedOrigins.includes(origin) || vercelDeployRegex.test(origin)) {
-      return callback(null, true);
-    }
-    if (process.env.NODE_ENV !== 'production' && /^http:\/\/(localhost|127\.0\.0\.1)(:[0-9]+)?$/.test(origin)) {
-      return callback(null, true);
-    }
-    console.warn(`[Security Alert] Blocked unauthorized CORS origin: ${origin}`);
-    return callback(new Error('Cross-Origin Request Blocked by CORS Security Policy'), false);
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'x-razorpay-signature', 'x-request-id']
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-razorpay-signature']
 }));
 
-// Apply global rate limiter across all endpoints
-app.use(globalLimiter);
-
-// Parse JSON bodies with size limit (1MB) and capture raw body for HMAC signature verification
-app.use(express.json({
-  limit: '1mb',
-  verify: (req, res, buf) => {
-    req.rawBody = buf;
-  }
-}));
-
-app.use(express.urlencoded({ extended: true, limit: '1mb' }));
-
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
