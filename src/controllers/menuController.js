@@ -260,10 +260,27 @@ export const toggleSoldOut = async (req, res, next) => {
   }
 };
 
-// Admin: Delete Menu Item
+// Admin: Delete Menu Item (Soft delete if item has order references)
 export const deleteMenuItem = async (req, res, next) => {
   try {
     const { id } = req.params;
+    const existing = await prisma.menuItem.findUnique({ where: { id } });
+    if (!existing) {
+      return res.status(404).json({ success: false, message: 'Item not found' });
+    }
+
+    const linkedOrdersCount = await prisma.orderItem.count({ where: { menuItemId: id } });
+    if (linkedOrdersCount > 0) {
+      await prisma.menuItem.update({
+        where: { id },
+        data: { active: false, soldOut: true }
+      });
+      return res.json({
+        success: true,
+        message: 'Item has historical order records and has been safely archived from the menu.'
+      });
+    }
+
     await prisma.menuItem.delete({ where: { id } });
     res.json({ success: true, message: 'Item deleted successfully' });
   } catch (error) {
@@ -317,6 +334,35 @@ export const updateCategory = async (req, res, next) => {
 export const deleteCategory = async (req, res, next) => {
   try {
     const { id } = req.params;
+    const category = await prisma.category.findUnique({
+      where: { id },
+      include: { menuItems: { select: { id: true } } }
+    });
+
+    if (!category) {
+      return res.status(404).json({ success: false, message: 'Category not found' });
+    }
+
+    const itemIds = category.menuItems.map(m => m.id);
+    const orderItemsCount = await prisma.orderItem.count({
+      where: { menuItemId: { in: itemIds } }
+    });
+
+    if (orderItemsCount > 0) {
+      await prisma.menuItem.updateMany({
+        where: { categoryId: id },
+        data: { active: false, soldOut: true }
+      });
+      await prisma.category.update({
+        where: { id },
+        data: { active: false }
+      });
+      return res.json({
+        success: true,
+        message: 'Category and its items have historical orders and have been safely archived.'
+      });
+    }
+
     await prisma.category.delete({ where: { id } });
     res.json({ success: true, message: 'Category deleted successfully' });
   } catch (error) {

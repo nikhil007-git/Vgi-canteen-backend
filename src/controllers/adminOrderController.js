@@ -184,20 +184,42 @@ export const verifyPickup = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Please provide either a pickup code or order ID.' });
     }
 
-    const where = {};
+    let order = null;
     if (pickupCode) {
-      where.pickupCode = pickupCode.trim().toUpperCase();
-    } else if (orderId) {
-      where.id = orderId;
-    }
+      const cleanCode = pickupCode.trim().toUpperCase();
+      // First look for active pending order matching the pickup code
+      order = await prisma.order.findFirst({
+        where: {
+          pickupCode: cleanCode,
+          status: { in: ['PAID', 'ACCEPTED', 'PREPARING', 'READY'] }
+        },
+        include: {
+          items: { include: { options: true } },
+          user: { select: { name: true, phone: true } }
+        },
+        orderBy: { createdAt: 'desc' }
+      });
 
-    const order = await prisma.order.findFirst({
-      where,
-      include: {
-        items: { include: { options: true } },
-        user: { select: { name: true, phone: true } }
+      // If no active order, check if any order (e.g. COMPLETED or CANCELLED) matches
+      if (!order) {
+        order = await prisma.order.findFirst({
+          where: { pickupCode: cleanCode },
+          include: {
+            items: { include: { options: true } },
+            user: { select: { name: true, phone: true } }
+          },
+          orderBy: { createdAt: 'desc' }
+        });
       }
-    });
+    } else if (orderId) {
+      order = await prisma.order.findUnique({
+        where: { id: orderId },
+        include: {
+          items: { include: { options: true } },
+          user: { select: { name: true, phone: true } }
+        }
+      });
+    }
 
     if (!order) {
       return res.status(404).json({ success: false, message: 'No matching order found for this pickup code.' });

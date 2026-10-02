@@ -28,6 +28,16 @@ export const createOrder = async (req, res, next) => {
     if (!items || !Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ success: false, message: 'Cart is empty. Please add items.' });
     }
+    if (items.length > 50) {
+      return res.status(400).json({ success: false, message: 'Maximum 50 items allowed per order.' });
+    }
+
+    for (const it of items) {
+      const q = Number(it.quantity);
+      if (!Number.isInteger(q) || q < 1 || q > 50) {
+        return res.status(400).json({ success: false, message: 'Item quantities must be integers between 1 and 50.' });
+      }
+    }
 
     // 3. Canteen status & capacity check
     const canteen = await prisma.canteenSettings.findUnique({ where: { id: 'default' } });
@@ -101,32 +111,57 @@ export const createOrder = async (req, res, next) => {
         quantity: item.quantity,
         unitPrice: itemUnitPrice,
         subtotal: itemSubtotal,
-        specialInstruction: item.specialInstruction ? item.specialInstruction.trim() : null,
+        specialInstruction: item.specialInstruction ? String(item.specialInstruction).slice(0, 300).trim() : null,
         options: processedOptions
       });
     }
 
-    // 5. Calculate Coupon Discount
+    // 5. Calculate Coupon Discount (Full Validation matching validateCoupon)
     let calculatedDiscount = 0;
     let validCouponCode = null;
 
-    if (couponCode && couponCode.trim() !== '') {
+    if (couponCode && typeof couponCode === 'string' && couponCode.trim() !== '') {
+      const cleanCode = couponCode.toUpperCase().trim();
       const coupon = await prisma.coupon.findUnique({
-        where: { code: couponCode.toUpperCase().trim() }
+        where: { code: cleanCode }
       });
 
-      if (coupon && coupon.active && calculatedSubtotal >= coupon.minOrder) {
-        if (coupon.type === 'PERCENTAGE') {
-          calculatedDiscount = (calculatedSubtotal * coupon.value) / 100;
-          if (coupon.maxDiscount && calculatedDiscount > coupon.maxDiscount) {
-            calculatedDiscount = coupon.maxDiscount;
+      const now = new Date();
+      if (
+        coupon &&
+        coupon.active &&
+        (!coupon.startAt || now >= new Date(coupon.startAt)) &&
+        (!coupon.endAt || now <= new Date(coupon.endAt)) &&
+        (!coupon.usageLimit || coupon.usedCount < coupon.usageLimit) &&
+        calculatedSubtotal >= coupon.minOrder
+      ) {
+        let perUserExceeded = false;
+        if (coupon.perUserLimit) {
+          const userOrdersWithCoupon = await prisma.order.count({
+            where: {
+              userId,
+              appliedCoupon: coupon.code,
+              status: { notIn: ['PAYMENT_PENDING', 'CANCELLED'] }
+            }
+          });
+          if (userOrdersWithCoupon >= coupon.perUserLimit) {
+            perUserExceeded = true;
           }
-        } else {
-          calculatedDiscount = coupon.value;
         }
-        calculatedDiscount = Math.min(calculatedDiscount, calculatedSubtotal);
-        calculatedDiscount = Math.round(calculatedDiscount * 100) / 100;
-        validCouponCode = coupon.code;
+
+        if (!perUserExceeded) {
+          if (coupon.type === 'PERCENTAGE') {
+            calculatedDiscount = (calculatedSubtotal * coupon.value) / 100;
+            if (coupon.maxDiscount && calculatedDiscount > coupon.maxDiscount) {
+              calculatedDiscount = coupon.maxDiscount;
+            }
+          } else {
+            calculatedDiscount = coupon.value;
+          }
+          calculatedDiscount = Math.min(calculatedDiscount, calculatedSubtotal);
+          calculatedDiscount = Math.round(calculatedDiscount * 100) / 100;
+          validCouponCode = coupon.code;
+        }
       }
     }
 
