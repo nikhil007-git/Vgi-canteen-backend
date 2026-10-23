@@ -1,4 +1,5 @@
 import prisma from '../config/db.js';
+import razorpayInstance from '../config/razorpay.js';
 
 // 1. Get All Orders for Admin Queue
 export const getAdminOrders = async (req, res, next) => {
@@ -51,7 +52,7 @@ export const updateOrderStatus = async (req, res, next) => {
 
     const order = await prisma.order.findUnique({
       where: { id },
-      include: { user: true }
+      include: { user: true, payment: true }
     });
 
     if (!order) {
@@ -89,24 +90,56 @@ export const updateOrderStatus = async (req, res, next) => {
       updateData.cancelledAt = now;
       updateData.cancelReason = cancelReason;
 
-      // Create refund record
+      // Automated Razorpay Refund handling
+      let rzpRefundId = null;
+      let refundStatus = 'PROCESSED';
+
+      const paymentId = order.payment?.razorpayPaymentId;
+      const isRealPayment = paymentId && !paymentId.startsWith('pay_mock_') && !paymentId.startsWith('mock_');
+
+      if (razorpayInstance && isRealPayment) {
+        try {
+          const refundRes = await razorpayInstance.payments.refund(paymentId, {
+            amount: Math.round(order.total * 100),
+            notes: {
+              orderId: order.id,
+              reason: cancelReason,
+              displayNumber: order.displayNumber || order.orderNumber
+            }
+          });
+          rzpRefundId = refundRes.id;
+          refundStatus = refundRes.status === 'failed' ? 'FAILED' : 'PROCESSED';
+        } catch (err) {
+          console.error(`[Razorpay Refund Error] Order ${order.id}:`, err.message);
+          rzpRefundId = `rfnd_err_${Date.now()}`;
+          refundStatus = 'FAILED';
+        }
+      } else {
+        rzpRefundId = `rfnd_mock_${Date.now()}`;
+      }
+
+      // Upsert refund record
       await prisma.refund.upsert({
         where: { orderId: id },
         update: {
-          status: 'PROCESSED',
+          paymentId: order.payment?.id || null,
+          razorpayRefundId: rzpRefundId,
+          status: refundStatus,
           reason: cancelReason,
           amount: order.total
         },
         create: {
           orderId: id,
-          status: 'PROCESSED',
+          paymentId: order.payment?.id || null,
+          razorpayRefundId: rzpRefundId,
+          status: refundStatus,
           reason: cancelReason,
           amount: order.total
         }
       });
 
       notificationTitle = 'Order Cancelled & Refund Initiated';
-      notificationBody = `Order #${order.displayNumber} was cancelled: ${cancelReason}. Refund of ₹${order.total} has been initiated.`;
+      notificationBody = `Order #${order.displayNumber || order.orderNumber} was cancelled: ${cancelReason}. Refund of ₹${order.total} has been ${refundStatus.toLowerCase()}.`;
     }
 
     const updatedOrder = await prisma.order.update({

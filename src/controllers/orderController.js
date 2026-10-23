@@ -292,9 +292,21 @@ export const getOrderById = async (req, res, next) => {
 
     const canteen = await prisma.canteenSettings.findUnique({ where: { id: 'default' } });
 
+    // Compute live queue position if active
+    let queuePosition = 0;
+    if (['PAID', 'ACCEPTED', 'PREPARING'].includes(order.status)) {
+      queuePosition = await prisma.order.count({
+        where: {
+          status: { in: ['PAID', 'ACCEPTED', 'PREPARING'] },
+          createdAt: { lt: order.createdAt }
+        }
+      });
+    }
+
     res.json({
       success: true,
       order,
+      queuePosition,
       canteenContact: {
         phone: canteen ? canteen.contactPhone : '+91 98765 43210',
         whatsapp: canteen ? canteen.contactWhatsapp : '+91 98765 43210'
