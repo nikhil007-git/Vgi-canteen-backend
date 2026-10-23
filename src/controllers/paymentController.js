@@ -143,19 +143,27 @@ export const verifyPayment = async (req, res, next) => {
     // 6. Broadcast Real-time socket events
     const io = req.app.get('io');
     if (io) {
-      // Notify Admin Room
-      io.to('admin_room').emit('new_order', {
+      // Notify Admin Room and general broadcast for kitchen
+      const newOrderPayload = {
         order: updatedOrder,
-        message: `New paid order #${updatedOrder.displayNumber || updatedOrder.orderNumber} received!`
-      });
+        title: '🔔 New Order Placed!',
+        message: `New order #${updatedOrder.displayNumber || updatedOrder.orderNumber} placed for ₹${updatedOrder.total}!`
+      };
+      io.to('admin_room').emit('new_order', newOrderPayload);
+      io.emit('new_order', newOrderPayload);
 
-      // Notify specific User Room
-      io.to(`user_${order.userId}`).emit('order_updated', {
+      // Notify specific User Room and Order Room
+      const userPayload = {
         orderId: updatedOrder.id,
         status: 'PAID',
         displayNumber: updatedOrder.displayNumber,
-        message: 'Payment confirmed! Order sent to canteen kitchen.'
-      });
+        title: 'Payment Successful!',
+        message: 'Payment confirmed! Your order has been sent to the canteen kitchen.'
+      };
+      io.to(`user_${order.userId}`).emit('order_updated', userPayload);
+      io.to(`order_${order.id}`).emit('order_updated', userPayload);
+      io.to(`user_${order.userId}`).emit('order_status_updated', userPayload);
+      io.to(`order_${order.id}`).emit('order_status_updated', userPayload);
     }
 
     res.json({

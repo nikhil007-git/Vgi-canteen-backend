@@ -27,3 +27,4 @@ jobs:
 
       - name: Check JavaScript syntax
         run: node -c $(find src -name "*.js")
+

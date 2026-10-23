@@ -180,8 +180,7 @@ export const updateOrderStatus = async (req, res, next) => {
     // Realtime Broadcast
     const io = req.app.get('io');
     if (io) {
-      // User room
-      io.to(`user_${order.userId}`).emit('order_status_updated', {
+      const updatePayload = {
         orderId: updatedOrder.id,
         status: updatedOrder.status,
         prepTimeMinutes: updatedOrder.prepTimeMinutes,
@@ -190,10 +189,25 @@ export const updateOrderStatus = async (req, res, next) => {
         isHighPriority,
         title: notificationTitle,
         message: notificationBody
-      });
+      };
+
+      // User room and order room
+      io.to(`user_${order.userId}`).emit('order_status_updated', updatePayload);
+      io.to(`order_${order.id}`).emit('order_status_updated', updatePayload);
+
+      if (updatedOrder.status === 'READY') {
+        io.to(`user_${order.userId}`).emit('order_ready', updatePayload);
+        io.to(`order_${order.id}`).emit('order_ready', updatePayload);
+      } else if (updatedOrder.status === 'COMPLETED') {
+        io.to(`user_${order.userId}`).emit('order_completed', updatePayload);
+        io.to(`order_${order.id}`).emit('order_completed', updatePayload);
+      }
 
       // Admin room update
       io.to('admin_room').emit('admin_order_updated', {
+        order: updatedOrder
+      });
+      io.emit('admin_order_updated', {
         order: updatedOrder
       });
     }
@@ -282,12 +296,21 @@ export const verifyPickup = async (req, res, next) => {
     // Realtime Broadcast
     const io = req.app.get('io');
     if (io) {
-      io.to(`user_${order.userId}`).emit('order_completed', {
+      const completedPayload = {
         orderId: order.id,
         status: 'COMPLETED',
-        message: 'Order completed! You can now rate your meal.'
-      });
+        title: 'Order Picked Up & Completed! ✅',
+        message: `Your Order #${updatedOrder.displayNumber || updatedOrder.orderNumber} is collected. Enjoy your meal!`
+      };
+      io.to(`user_${order.userId}`).emit('order_completed', completedPayload);
+      io.to(`order_${order.id}`).emit('order_completed', completedPayload);
+      io.to(`user_${order.userId}`).emit('order_status_updated', completedPayload);
+      io.to(`order_${order.id}`).emit('order_status_updated', completedPayload);
+
       io.to('admin_room').emit('admin_order_updated', {
+        order: updatedOrder
+      });
+      io.emit('admin_order_updated', {
         order: updatedOrder
       });
     }
